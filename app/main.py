@@ -147,3 +147,16 @@ def unsafe_search_messages(query: str, db: Session = Depends(get_db)):
     sql = f"SELECT * FROM messages WHERE content LIKE '%{query}%'"
     result = db.execute(text(sql)).fetchall()
     return {"result": [row._asdict() for row in result]}
+
+@app.post("/unsafe_messages/", status_code=status.HTTP_201_CREATED)
+def unsafe_add_message(message: MessageCreate, db: Session = Depends(get_db)):
+    """
+    [VULNERABLE] 这是一个故意留下的 SQL 注入漏洞接口 (INSERT)
+    用于测试你的 SAST/DAST 流水线是否能拦截
+    """
+    from sqlalchemy import text
+    # 直接拼接字符串，极其危险！
+    sql = f"INSERT INTO messages (username, content, created_at) VALUES ('{message.username}', '{message.content}', '{datetime.utcnow()}')"
+    db.execute(text(sql))
+    db.commit()
+    return {"status": "message added (unsafe)", "content": message.content}
