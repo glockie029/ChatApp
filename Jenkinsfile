@@ -35,6 +35,7 @@ pipeline {
                 echo '安装依赖...'
                 sh "./${VENV_PATH}/bin/pip install --upgrade pip"
                 sh "./${VENV_PATH}/bin/pip install fastapi uvicorn"
+                sh "pip install -r requirements.txt"
             }
         }
 
