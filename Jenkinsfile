@@ -7,13 +7,7 @@ pipeline {
     }
 
     stages {
-        stage('Checkout & Check Files') {
-            steps {
-                echo '检查当前工作区文件...'
-                // 打印当前目录下的所有文件，确认 main.py 是否存在
-                sh "ls -R"
-            }
-        }
+
 
         stage('Cleanup') {
             steps {
@@ -35,7 +29,7 @@ pipeline {
                 echo '安装依赖...'
                 sh "./${VENV_PATH}/bin/pip install --upgrade pip"
                 sh "./${VENV_PATH}/bin/pip install fastapi uvicorn"
-                sh "pip install -r requirements.txt"
+                sh "./${VENV_PATH}/bin/pip install -r requirements.txt"
             }
         }
 
@@ -55,7 +49,7 @@ pipeline {
                 echo '检查启动日志...'
                 sleep 5
                 sh "cat server.log"
-                sh "netstat -tuln | grep ${APP_PORT} || echo '错误：服务未能在端口 ${APP_PORT} 启动'"
+                sh "curl -s http://localhost:${APP_PORT}/ || (echo '错误：服务未能在端口 ${APP_PORT} 响应'; exit 1)"
             }
         }
     }
