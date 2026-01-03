@@ -4,6 +4,9 @@ pipeline {
     environment {
         VENV_PATH = "venv"
         APP_PORT  = "8000"
+        // 强制设置语言环境，避免 Python 工具报编码错误
+        LC_ALL    = "C.UTF-8"
+        LANG      = "C.UTF-8"
     }
 
     stages {
