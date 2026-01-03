@@ -33,6 +33,21 @@ pipeline {
             }
         }
 
+        stage('Security: SAST') {
+            steps {
+                echo '正在执行静态代码安全分析 (Bandit)...'
+                // 扫描当前目录, 排除 venv
+                sh "./${VENV_PATH}/bin/bandit -r . -x ./venv -f json -o bandit_report.json || true"
+            }
+        }
+
+        stage('Security: SCA') {
+            steps {
+                echo '正在执行依赖组件安全分析 (Safety)...'
+                sh "./${VENV_PATH}/bin/safety check -r requirements.txt --json > safety_report.json || true"
+            }
+        }
+
         stage('Run Server') {
             steps {
                 echo "正在启动服务..."
@@ -51,6 +66,13 @@ pipeline {
                 sh "cat server.log"
                 sh "curl -s http://localhost:${APP_PORT}/ || (echo '错误：服务未能在端口 ${APP_PORT} 响应'; exit 1)"
             }
+        }
+    }
+    
+    post {
+        always {
+            echo '归档安全扫描报告...'
+            archiveArtifacts artifacts: '*.json', allowEmptyArchive: true
         }
     }
 }
