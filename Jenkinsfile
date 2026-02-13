@@ -44,6 +44,8 @@ pipeline {
         stage('Unit Test') {
             steps {
                 echo '正在执行单元测试 (Pytest)...'
+                echo '检查pytest'
+                sh "./${VENV_PATH}/bin/pytest --version" || true
                 // 运行 pytest 并生成简单的结果
                 sh "./${VENV_PATH}/bin/pytest -v test_main.py > test_result.log"
             }
