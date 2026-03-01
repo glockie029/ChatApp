@@ -73,17 +73,33 @@ pipeline {
         stage('Security: SCA (Deps)') {
             steps {
                 echo '正在执行依赖组件安全分析 (Safety)...'
-                // 1. 生成报告
-                sh "./${VENV_PATH}/bin/safety check -r requirements.txt --json > safety_report.json || true"
-                
-                // 2. 执行安全门禁检查
+
+                // 1. 生成 JSON 报告
+                //    safety v2 使用 --json；safety v3 使用 --output json
+                //    此处优先尝试 v2 语法，若失败则降级至 v3 语法，|| true 保证 shell 不提前退出
+                sh """
+                    ./${VENV_PATH}/bin/safety check -r requirements.txt --json -o safety_report.json 2>/dev/null || \
+                    ./${VENV_PATH}/bin/safety check -r requirements.txt --output json > safety_report.json 2>/dev/null || true
+                """
+
+                // 2. 执行安全门禁检查 —— security_gate.py 会解析报告并打印漏洞详情
                 script {
-                    def exitCode = sh(script: "python3 security_gate.py safety", returnStatus: true)
-                    
+                    def exitCode = sh(
+                        script: "python3 security_gate.py safety",
+                        returnStatus: true
+                    )
+
                     if (exitCode == 1) {
-                        error("⛔ [Security Gate] 检测到依赖组件存在 CVE 漏洞，流水线阻断！请升级依赖包。")
+                        // 存在已知 CVE 漏洞，阻断流水线
+                        error("⛔ [Security Gate] 检测到依赖组件存在 CVE 漏洞，流水线阻断！\n" +
+                              "   → 请查看上方 [Safety SCA 依赖漏洞扫描报告] 中的详细信息并升级对应依赖包。")
+                    } else if (exitCode == 2) {
+                        // 中低危漏洞，标记不稳定但不阻断
+                        currentBuild.result = 'UNSTABLE'
+                        echo "⚠️ [Security Gate] 检测到低危/中危依赖漏洞，流水线标记为不稳定。\n" +
+                             "   → 请参考报告中的修复版本进行升级。"
                     } else {
-                        echo "✅ [Security Gate] 依赖安全检查通过。"
+                        echo "✅ [Security Gate] 依赖安全检查通过，未发现已知 CVE 漏洞。"
                     }
                 }
             }
