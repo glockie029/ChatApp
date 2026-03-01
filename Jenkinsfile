@@ -78,8 +78,7 @@ pipeline {
                 //    safety v2 使用 --json；safety v3 使用 --output json
                 //    此处优先尝试 v2 语法，若失败则降级至 v3 语法，|| true 保证 shell 不提前退出
                 sh """
-                    ./${VENV_PATH}/bin/safety check -r requirements.txt --json -o safety_report.json 2>/dev/null || \
-                    ./${VENV_PATH}/bin/safety check -r requirements.txt --output json > safety_report.json 2>/dev/null || true
+                    ./${VENV_PATH}/bin/safety check -r requirements.txt --json > safety_report.json 2>&1 || true
                 """
 
                 // 2. 执行安全门禁检查 —— security_gate.py 会解析报告并打印漏洞详情
