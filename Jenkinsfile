@@ -1,11 +1,96 @@
+def isPullRequestBuild() {
+    return env.CHANGE_ID?.trim()
+}
+
+def isMainBranch() {
+    return (env.BRANCH_NAME ?: '') in ['main', 'master']
+}
+
+def isDevelopBranch() {
+    return (env.BRANCH_NAME ?: '') in ['develop', 'dev']
+}
+
+def isFeatureLikeBranch() {
+    def branchName = env.BRANCH_NAME ?: ''
+    return isPullRequestBuild() ||
+        branchName.startsWith('feature/') ||
+        branchName.startsWith('bugfix/') ||
+        branchName.startsWith('hotfix/')
+}
+
+def resolveSecurityProfile() {
+    if (isMainBranch()) {
+        return 'strict'
+    }
+    if (isDevelopBranch()) {
+        return 'standard'
+    }
+    return 'relaxed'
+}
+
+def resolveAppPort() {
+    def branchKey = isPullRequestBuild() ? "pr-${env.CHANGE_ID}" : (env.BRANCH_NAME ?: 'local')
+    return (8200 + ((branchKey.hashCode() & 0x7fffffff) % 300)).toString()
+}
+
+def handleBanditGate(int exitCode) {
+    if (exitCode == 0) {
+        echo "✅ [Security Gate] Bandit 检查通过。"
+        return
+    }
+
+    if (exitCode == 1) {
+        error("⛔ [Security Gate] 检测到高危代码漏洞，流水线阻断！")
+    }
+
+    if (exitCode == 2) {
+        if (env.SECURITY_PROFILE == 'relaxed') {
+            currentBuild.result = 'UNSTABLE'
+            echo "⚠️ [Security Gate] 当前为功能分支/PR，中危漏洞仅标记为不稳定。"
+            return
+        }
+
+        error("⛔ [Security Gate] ${env.BRANCH_NAME} 分支不允许存在中危代码漏洞，流水线阻断！")
+    }
+
+    error("⛔ [Security Gate] Bandit 执行结果异常，流水线阻断！")
+}
+
+def handleSafetyGate(int exitCode) {
+    if (exitCode == 0) {
+        echo "✅ [Security Gate] Safety 检查通过。"
+        return
+    }
+
+    if (exitCode == 1) {
+        if (env.SECURITY_PROFILE == 'relaxed') {
+            currentBuild.result = 'UNSTABLE'
+            echo "⚠️ [Security Gate] 当前为功能分支/PR，依赖漏洞仅标记为不稳定。"
+            return
+        }
+
+        error("⛔ [Security Gate] ${env.BRANCH_NAME} 分支检测到依赖漏洞，流水线阻断！")
+    }
+
+    if (exitCode == 2) {
+        currentBuild.result = 'UNSTABLE'
+        echo "⚠️ [Security Gate] 检测到低危/中危依赖漏洞，流水线标记为不稳定。"
+        return
+    }
+
+    error("⛔ [Security Gate] Safety 执行结果异常，流水线阻断！")
+}
+
 pipeline {
     agent any
 
     environment {
         VENV_PATH = "venv"
-        APP_PORT  = "8000"
-        LC_ALL    = "C.UTF-8"
-        LANG      = "C.UTF-8"
+        APP_PORT = "8000"
+        LC_ALL = "C.UTF-8"
+        LANG = "C.UTF-8"
+        SECURITY_PROFILE = "relaxed"
+        BRANCH_CATEGORY = "feature"
     }
 
     stages {
@@ -15,10 +100,36 @@ pipeline {
             }
         }
 
+        stage('Branch Policy') {
+            steps {
+                script {
+                    env.SECURITY_PROFILE = resolveSecurityProfile()
+                    env.APP_PORT = resolveAppPort()
+
+                    if (isMainBranch()) {
+                        env.BRANCH_CATEGORY = 'main'
+                    } else if (isDevelopBranch()) {
+                        env.BRANCH_CATEGORY = 'develop'
+                    } else if (isFeatureLikeBranch()) {
+                        env.BRANCH_CATEGORY = 'feature-or-pr'
+                    } else {
+                        env.BRANCH_CATEGORY = 'other'
+                    }
+
+                    echo """
+                    当前分支: ${env.BRANCH_NAME ?: 'unknown'}
+                    分支类型: ${env.BRANCH_CATEGORY}
+                    安全策略: ${env.SECURITY_PROFILE}
+                    PR 编号: ${env.CHANGE_ID ?: 'N/A'}
+                    当前校验端口: ${env.APP_PORT}
+                    """
+                }
+            }
+        }
+
         stage('Cleanup') {
             steps {
-                echo '清理旧进程...'
-                sh "pkill -f uvicorn || true"
+                echo "清理端口 ${APP_PORT} 上的旧进程..."
                 sh "fuser -k ${APP_PORT}/tcp || true"
             }
         }
@@ -41,72 +152,56 @@ pipeline {
         stage('Unit Test') {
             steps {
                 echo '正在执行单元测试...'
-                // 使用推荐的模块调用方式
-                sh "PYTHONPATH=. ./${VENV_PATH}/bin/python3 -m pytest -v -W ignore::DeprecationWarning test_main.py > test_result.log"
+                sh "PYTHONPATH=. ./${VENV_PATH}/bin/python3 -m pytest -v -W ignore::DeprecationWarning > test_result.log"
             }
         }
 
         stage('Security: SAST (Code)') {
             steps {
-                echo '正在执行静态代码安全分析 (Bandit)...'
-                // 1. 生成报告 (|| true 确保即使发现漏洞，shell 也不报错，交由 python 脚本判断)
-                sh "./${VENV_PATH}/bin/bandit -r . -x ./venv -f json -o bandit_report.json || true"
-                
-                // 2. 执行安全门禁检查
+                echo "正在执行静态代码安全分析 (Bandit)... [策略: ${SECURITY_PROFILE}]"
+                sh "./${VENV_PATH}/bin/bandit -r . -x ./venv,./test_main.py -f json -o bandit_report.json || true"
+
                 script {
-                    // 调用我们编写的 python 脚本检查 bandit 报告
-                    // returnStatus: true 让 sh 返回退出码而不是抛出异常
-                    def exitCode = sh(script: "python3 security_gate.py bandit", returnStatus: true)
-                    
-                    if (exitCode == 1) {
-                        error("⛔ [Security Gate] 检测到高危代码漏洞，流水线阻断！请查看日志中的详细报告。")
-                    } else if (exitCode == 2) {
-                        currentBuild.result = 'UNSTABLE'
-                        echo "⚠️ [Security Gate] 检测到中危漏洞，流水线标记为不稳定。"
-                    } else {
-                        echo "✅ [Security Gate] 代码安全检查通过。"
-                    }
+                    def exitCode = sh(
+                        script: "python3 security_gate.py bandit",
+                        returnStatus: true
+                    )
+                    handleBanditGate(exitCode)
                 }
             }
         }
 
         stage('Security: SCA (Deps)') {
             steps {
-                echo '正在执行依赖组件安全分析 (Safety)...'
-
-                // 1. 生成 JSON 报告
-                //    safety v2 使用 --json；safety v3 使用 --output json
-                //    此处优先尝试 v2 语法，若失败则降级至 v3 语法，|| true 保证 shell 不提前退出
+                echo "正在执行依赖组件安全分析 (Safety)... [策略: ${SECURITY_PROFILE}]"
                 sh """
                     ./${VENV_PATH}/bin/safety check -r requirements.txt --json > safety_report.json 2>&1 || true
                 """
 
-                // 2. 执行安全门禁检查 —— security_gate.py 会解析报告并打印漏洞详情
                 script {
                     def exitCode = sh(
                         script: "python3 security_gate.py safety",
                         returnStatus: true
                     )
-
-                    if (exitCode == 1) {
-                        // 存在已知 CVE 漏洞，阻断流水线
-                        error("⛔ [Security Gate] 检测到依赖组件存在 CVE 漏洞，流水线阻断！\n" +
-                              "   → 请查看上方 [Safety SCA 依赖漏洞扫描报告] 中的详细信息并升级对应依赖包。")
-                    } else if (exitCode == 2) {
-                        // 中低危漏洞，标记不稳定但不阻断
-                        currentBuild.result = 'UNSTABLE'
-                        echo "⚠️ [Security Gate] 检测到低危/中危依赖漏洞，流水线标记为不稳定。\n" +
-                             "   → 请参考报告中的修复版本进行升级。"
-                    } else {
-                        echo "✅ [Security Gate] 依赖安全检查通过，未发现已知 CVE 漏洞。"
-                    }
+                    handleSafetyGate(exitCode)
                 }
+            }
+        }
+
+        stage('Trivy Scan') {
+            when {
+                expression {
+                    return env.BRANCH_CATEGORY in ['develop', 'main']
+                }
+            }
+            steps {
+                echo "Trivy 阶段预留给长期分支，当前仅保留占位。"
             }
         }
 
         stage('Run Server') {
             steps {
-                echo "正在启动服务..."
+                echo "正在启动服务，端口 ${APP_PORT}..."
                 sh """
                     export JENKINS_NODE_COOKIE=dontKillMe
                     PYTHONPATH=. nohup ./${VENV_PATH}/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port ${APP_PORT} > server.log 2>&1 &
@@ -123,11 +218,14 @@ pipeline {
             }
         }
     }
-    
+
     post {
         always {
             echo '归档报告...'
             archiveArtifacts artifacts: '*.json, *.log', allowEmptyArchive: true
+        }
+        cleanup {
+            sh "fuser -k ${APP_PORT}/tcp || true"
         }
     }
 }

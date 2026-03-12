@@ -1,0 +1,13 @@
+.git
+.gitignore
+.DS_Store
+.env
+venv/
+__pycache__/
+.pytest_cache/
+*.sqlite3
+chat.db
+*.log
+bandit_report.json
+safety_report.json
+docs/
