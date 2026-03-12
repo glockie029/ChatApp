@@ -137,7 +137,7 @@ pipeline {
         stage('Prepare Environment') {
             steps {
                 echo '正在初始化虚拟环境...'
-                sh "python3 -m venv ${VENV_PATH}"
+                sh "python -m venv ${VENV_PATH}"
             }
         }
 
