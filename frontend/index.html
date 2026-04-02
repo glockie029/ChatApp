@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anonymous Secure Chat</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <span>SecureChat</span>
+                </div>
+            </div>
+            
+            <div class="user-profile">
+                <div class="avatar-placeholder">
+                    <i class="fa-solid fa-user-astronaut"></i>
+                </div>
+                <div class="user-info">
+                    <input type="text" id="usernameInput" placeholder="设个昵称吧..." value="Anonymous" />
+                    <span class="status"><span class="status-dot"></span> Online</span>
+                </div>
+            </div>
+            
+            <div class="channels">
+                <h3>Rooms</h3>
+                <ul>
+                    <li class="active"><i class="fa-solid fa-hashtag"></i> general</li>
+                    <li><i class="fa-solid fa-hashtag"></i> random</li>
+                </ul>
+            </div>
+            
+            <div class="api-config">
+                <label for="apiUrl">API 端点 (Endpoint)</label>
+                <input type="text" id="apiUrl" value="http://127.0.0.1:8000" placeholder="http://127.0.0.1:8000">
+                
+                <label for="aesKeyInput" style="margin-top: 12px; color: #E74C3C;">
+                    <i class="fa-solid fa-lock" style="margin-right: 4px;"></i> 聊天加密密钥 (E2EE)
+                </label>
+                <input type="password" id="aesKeyInput" placeholder="输入双方约定的安全密钥" value="">
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="chat-area">
+            <header class="chat-header">
+                <div class="channel-info">
+                    <h2><i class="fa-solid fa-hashtag"></i> general</h2>
+                    <p>Welcome to the anonymous discussion room.</p>
+                </div>
+                <div class="header-actions">
+                    <button class="icon-btn" id="refreshBtn" title="刷新消息"><i class="fa-solid fa-rotate-right"></i></button>
+                    <div class="online-count"><i class="fa-solid fa-users"></i> Global Room</div>
+                </div>
+            </header>
+
+            <div class="messages-container" id="messagesBox">
+                <!-- Messages will be injected here via JS -->
+                <div class="loading-overlay" id="loadingSpinner">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+
+            <div class="chat-input-container">
+                <form id="messageForm">
+                    <div class="input-wrapper">
+                        <button type="button" class="icon-btn attachment"><i class="fa-solid fa-paperclip"></i></button>
+                        <input type="text" id="messageInput" placeholder="Type your message here..." autocomplete="off" required>
+                        <button type="submit" class="send-btn" id="sendBtn"><i class="fa-solid fa-paper-plane"></i></button>
+                    </div>
+                </form>
+            </div>
+        </main>
+    </div>
+    
+    <!-- Notification Toast -->
+    <div id="toast" class="toast hidden">
+        <i class="fa-solid fa-circle-info"></i>
+        <span id="toastMessage">Notification</span>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class MessageCreate(BaseModel):
-    content: str = Field(..., min_length=1, max_length=1000, description="Message body")
+    content: str = Field(..., min_length=1, max_length=5000000, description="Message body (supports E2EE Base64 images)")
     username: str = Field("Anonymous", max_length=50, description="Display name")
 
     @field_validator("content")
